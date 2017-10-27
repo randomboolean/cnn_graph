@@ -80,7 +80,7 @@ class base_model(object):
             string += '\ntime: {:.0f}s (wall {:.0f}s)'.format(time.process_time()-t_process, time.time()-t_wall)
         return string, accuracy, f1, loss
 
-    def fit(self, train_data, train_labels, val_data, val_labels):
+    def fit(self, train_data, train_labels, val_data, val_labels, verbose=True):
         t_process, t_wall = time.process_time(), time.time()
         sess = tf.Session(graph=self.graph)
         shutil.rmtree(self._get_path('summaries'), ignore_errors=True)
@@ -111,13 +111,15 @@ class base_model(object):
             # Periodical evaluation of the model.
             if step % self.eval_frequency == 0 or step == num_steps:
                 epoch = step * self.batch_size / train_data.shape[0]
-                print('step {} / {} (epoch {:.2f} / {}):'.format(step, num_steps, epoch, self.num_epochs))
-                print('  learning_rate = {:.2e}, loss_average = {:.2e}'.format(learning_rate, loss_average))
+                if verbose:
+                    print('step {} / {} (epoch {:.2f} / {}):'.format(step, num_steps, epoch, self.num_epochs))
+                    print('  learning_rate = {:.2e}, loss_average = {:.2e}'.format(learning_rate, loss_average))
                 string, accuracy, f1, loss = self.evaluate(val_data, val_labels, sess)
                 accuracies.append(accuracy)
                 losses.append(loss)
-                print('  validation {}'.format(string))
-                print('  time: {:.0f}s (wall {:.0f}s)'.format(time.process_time()-t_process, time.time()-t_wall))
+                if verbose:
+                    print('  validation {}'.format(string))
+                    print('  time: {:.0f}s (wall {:.0f}s)'.format(time.process_time()-t_process, time.time()-t_wall))
 
                 # Summaries for TensorBoard.
                 summary = tf.Summary()
@@ -130,7 +132,8 @@ class base_model(object):
                 # Save model parameters (for evaluation).
                 self.op_saver.save(sess, path, global_step=step)
 
-        print('validation accuracy: peak = {:.2f}, mean = {:.2f}'.format(max(accuracies), np.mean(accuracies[-10:])))
+        if verbose:
+            print('validation accuracy: peak = {:.2f}, mean = {:.2f}'.format(max(accuracies), np.mean(accuracies[-10:])))
         writer.close()
         sess.close()
         
@@ -238,8 +241,8 @@ class base_model(object):
             tf.summary.scalar('learning_rate', learning_rate)
             # Optimizer.
             if momentum == 0:
-                optimizer = tf.train.GradientDescentOptimizer(learning_rate)
-                #optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
+                #optimizer = tf.train.GradientDescentOptimizer(learning_rate)
+                optimizer = tf.train.AdamOptimizer(learning_rate)
             else:
                 optimizer = tf.train.MomentumOptimizer(learning_rate, momentum)
             grads = optimizer.compute_gradients(loss)
@@ -744,7 +747,8 @@ class cgcnn(base_model):
     def __init__(self, L, F, K, p, M, filter='chebyshev5', brelu='b1relu', pool='mpool1',
                 num_epochs=20, learning_rate=0.1, decay_rate=0.95, decay_steps=None, momentum=0.9,
                 regularization=0, dropout=0, batch_size=100, eval_frequency=200,
-                dir_name=''):
+                dir_name='',
+                verbose=True):
         super().__init__()
         
         # Verify the consistency w.r.t. the number of layers.
@@ -766,28 +770,29 @@ class cgcnn(base_model):
         # Print information about NN architecture.
         Ngconv = len(p)
         Nfc = len(M)
-        print('NN architecture')
-        print('  input: M_0 = {}'.format(M_0))
-        for i in range(Ngconv):
-            print('  layer {0}: cgconv{0}'.format(i+1))
-            print('    representation: M_{0} * F_{1} / p_{1} = {2} * {3} / {4} = {5}'.format(
-                    i, i+1, L[i].shape[0], F[i], p[i], L[i].shape[0]*F[i]//p[i]))
-            F_last = F[i-1] if i > 0 else 1
-            print('    weights: F_{0} * F_{1} * K_{1} = {2} * {3} * {4} = {5}'.format(
-                    i, i+1, F_last, F[i], K[i], F_last*F[i]*K[i]))
-            if brelu == 'b1relu':
-                print('    biases: F_{} = {}'.format(i+1, F[i]))
-            elif brelu == 'b2relu':
-                print('    biases: M_{0} * F_{0} = {1} * {2} = {3}'.format(
-                        i+1, L[i].shape[0], F[i], L[i].shape[0]*F[i]))
-        for i in range(Nfc):
-            name = 'logits (softmax)' if i == Nfc-1 else 'fc{}'.format(i+1)
-            print('  layer {}: {}'.format(Ngconv+i+1, name))
-            print('    representation: M_{} = {}'.format(Ngconv+i+1, M[i]))
-            M_last = M[i-1] if i > 0 else M_0 if Ngconv == 0 else L[-1].shape[0] * F[-1] // p[-1]
-            print('    weights: M_{} * M_{} = {} * {} = {}'.format(
-                    Ngconv+i, Ngconv+i+1, M_last, M[i], M_last*M[i]))
-            print('    biases: M_{} = {}'.format(Ngconv+i+1, M[i]))
+        if verbose:
+            print('NN architecture')
+            print('  input: M_0 = {}'.format(M_0))
+            for i in range(Ngconv):
+                print('  layer {0}: cgconv{0}'.format(i+1))
+                print('    representation: M_{0} * F_{1} / p_{1} = {2} * {3} / {4} = {5}'.format(
+                        i, i+1, L[i].shape[0], F[i], p[i], L[i].shape[0]*F[i]//p[i]))
+                F_last = F[i-1] if i > 0 else 1
+                print('    weights: F_{0} * F_{1} * K_{1} = {2} * {3} * {4} = {5}'.format(
+                        i, i+1, F_last, F[i], K[i], F_last*F[i]*K[i]))
+                if brelu == 'b1relu':
+                    print('    biases: F_{} = {}'.format(i+1, F[i]))
+                elif brelu == 'b2relu':
+                    print('    biases: M_{0} * F_{0} = {1} * {2} = {3}'.format(
+                            i+1, L[i].shape[0], F[i], L[i].shape[0]*F[i]))
+            for i in range(Nfc):
+                name = 'logits (softmax)' if i == Nfc-1 else 'fc{}'.format(i+1)
+                print('  layer {}: {}'.format(Ngconv+i+1, name))
+                print('    representation: M_{} = {}'.format(Ngconv+i+1, M[i]))
+                M_last = M[i-1] if i > 0 else M_0 if Ngconv == 0 else L[-1].shape[0] * F[-1] // p[-1]
+                print('    weights: M_{} * M_{} = {} * {} = {}'.format(
+                        Ngconv+i, Ngconv+i+1, M_last, M[i], M_last*M[i]))
+                print('    biases: M_{} = {}'.format(Ngconv+i+1, M[i]))
         
         # Store attributes and bind operations.
         self.L, self.F, self.K, self.p, self.M = L, F, K, p, M
